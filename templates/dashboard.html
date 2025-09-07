@@ -19,12 +19,16 @@
 </head>
 <body class="p-4 sm:p-6 lg:p-8 min-h-screen">
     <div class="container mx-auto max-w-4xl bg-white p-6 sm:p-8 rounded-xl shadow-lg">
+
+        <!-- Header -->
         <div class="flex flex-col sm:flex-row justify-between items-center pb-5 border-b-2 border-gray-200 mb-6">
             <h2 class="text-3xl sm:text-4xl font-bold text-blue-600 mb-4 sm:mb-0">
                 <i class="fas fa-graduation-cap mr-2"></i> NYSC Exam Dashboard
             </h2>
             <div class="flex items-center space-x-4">
-                <p id="welcome-message" class="text-gray-700 font-semibold hidden sm:block">Welcome, <span id="user-email-display"></span></p>
+                <a href="/quiz" class="btn bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg shadow transition-all duration-300">
+                    <i class="fas fa-edit mr-2"></i> Quiz Generator
+                </a>
                 <button id="logoutBtn" class="btn bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-all duration-300">
                     <i class="fas fa-sign-out-alt mr-2"></i> Logout
                 </button>
@@ -33,6 +37,7 @@
 
         <p id="status-message" class="mb-4 text-gray-600">Authenticating...</p>
         
+        <!-- Live Stats -->
         <section class="card bg-gray-50 p-6 rounded-xl border border-gray-200 mb-6 transition-all duration-200">
             <h2 class="text-xl font-bold text-gray-800 mb-3"><i class="fas fa-users mr-2"></i> Live Statistics</h2>
             <p class="text-sm text-gray-600 mb-4">Online user data updates every 10 seconds.</p>
@@ -40,14 +45,16 @@
             <ul id="online-users-list" class="mt-2 space-y-1"></ul>
         </section>
 
+        <!-- Active Discussions -->
         <section class="card bg-gray-50 p-6 rounded-xl border border-gray-200 mb-6 transition-all duration-200">
             <h2 class="text-xl font-bold text-gray-800 mb-3"><i class="fas fa-comments mr-2"></i> Active Discussion Topics</h2>
             <p class="text-sm text-gray-600 mb-4">Click "Join" to participate in a discussion. Click "Summary" for key points.</p>
             <ul id="discussion-topics-list" class="space-y-4">
-                <li id="no-discussions-message" class="text-center text-gray-500">No active discussions found.</li>
+                <li id="no-discussions-message" class="text-center text-gray-500 hidden">No active discussions found.</li>
             </ul>
         </section>
         
+        <!-- Chat Modal -->
         <div id="chat-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm">
             <div class="bg-white rounded-xl shadow-2xl w-11/12 max-w-2xl h-[80%] flex flex-col p-6 relative">
                 <div class="flex justify-between items-center mb-4 pb-2 border-b">
@@ -65,13 +72,14 @@
             </div>
         </div>
 
+        <!-- Summary Modal -->
         <div id="summary-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm">
             <div class="bg-white rounded-xl shadow-2xl w-11/12 max-w-xl flex flex-col p-6 relative">
                 <div class="flex justify-between items-center mb-4 pb-2 border-b">
                     <h3 class="text-2xl font-bold text-gray-800">Discussion Summary</h3>
                     <button id="close-summary-btn" class="text-gray-500 hover:text-gray-800 text-3xl font-light">&times;</button>
                 </div>
-                <div id="summary-content" class="max-h-96 overflow-y-auto mb-4">
+                <div id="summary-content" class="max-h-96 overflow-y-auto mb-4 p-2">
                     <div class="spinner w-8 h-8 mx-auto border-4 rounded-full border-gray-200 border-t-blue-500"></div>
                     <p class="text-center text-gray-600 mt-2">Generating summary...</p>
                 </div>
@@ -80,7 +88,6 @@
                 </button>
             </div>
         </div>
-
     </div>
     
     <script>
@@ -119,9 +126,9 @@
         const copySummaryBtn = document.getElementById("copy-summary-btn");
 
         let currentTopicId = null;
-        let currentUserEmail = '{{ email }}'; // Get user email from Flask context
+        let currentUserEmail = '{{ email }}';
 
-        // --- Chat Modal Control Functions ---
+        // --- Modal Control Functions ---
         function showChatModal(topicId, question) {
             currentTopicId = topicId;
             chatTopicQuestion.textContent = question;
@@ -137,7 +144,6 @@
 
         leaveRoomBtn.addEventListener("click", hideChatModal);
 
-        // --- Summary Modal Control Functions ---
         function showSummaryModal(topicId) {
             summaryModal.classList.remove("hidden");
             summaryContent.innerHTML = `
@@ -149,7 +155,7 @@
 
         function hideSummaryModal() {
             summaryModal.classList.add("hidden");
-            summaryContent.innerHTML = ""; // Clear content on close
+            summaryContent.innerHTML = "";
         }
 
         closeSummaryBtn.addEventListener("click", hideSummaryModal);
@@ -193,14 +199,14 @@
                 const topics = await response.json();
                 discussionTopicsListEl.innerHTML = "";
                 if (topics.length === 0) {
-                    noDiscussionsMessageEl.style.display = 'block';
+                    noDiscussionsMessageEl.classList.remove('hidden');
                 } else {
-                    noDiscussionsMessageEl.style.display = 'none';
+                    noDiscussionsMessageEl.classList.add('hidden');
                     topics.forEach(topic => {
                         const li = document.createElement("li");
                         li.dataset.id = topic.id;
                         li.className = "card bg-white p-4 rounded-lg shadow border border-gray-200 flex flex-col gap-2 transition-all duration-200";
-                        const postedDate = topic.created_at?.toDate ? new Date(topic.created_at.toDate()).toLocaleString() : 'N/A';
+                        const postedDate = new Date(topic.created_at).toLocaleString();
                         li.innerHTML = `
                             <p class="font-semibold text-gray-800">${topic.question}</p>
                             <p class="text-xs text-gray-500">Posted by: ${topic.author} on ${postedDate}</p>
@@ -254,12 +260,12 @@
 
                 // Implement the formatting logic as discussed
                 const formatted = summaryText
-                    .split(/\n|•|-/) 
+                    .split(/\n|•|-/)
                     .map(line => line.trim())
                     .filter(line => line.length > 0)
                     .map(line => `<li class="mb-1">${line}</li>`)
                     .join("");
-
+                
                 summaryContent.innerHTML = `<ul class="list-disc pl-5 text-sm text-gray-700 space-y-1">${formatted}</ul>`;
 
             } catch (error) {
@@ -310,24 +316,10 @@
         
         // --- Initial Load & Polling ---
         document.addEventListener("DOMContentLoaded", () => {
-            // Retrieve email from session or a script tag that Flask renders
-            // This is a placeholder; in a real app, ensure {{ email }} is correctly rendered by Flask.
-            // For now, it's safer to assume a default if not rendered.
-            if (!currentUserEmail || currentUserEmail === '{{ email }}') { // Check if Flask placeholder is still there
-                const userEmailFromSession = sessionStorage.getItem('user_email'); // Or localStorage
-                if (userEmailFromSession) {
-                    currentUserEmail = userEmailFromSession;
-                } else {
-                    console.warn("User email not found in Flask context or session. Using a default for display.");
-                    currentUserEmail = "guest@example.com"; // Fallback
-                }
-            }
-
-
             pingBackend();
             fetchOnlineUsers();
             fetchDiscussions();
-            
+            // Set up polling for online users and discussions
             setInterval(pingBackend, 10000);
             setInterval(fetchOnlineUsers, 10000);
             setInterval(fetchDiscussions, 10000);
