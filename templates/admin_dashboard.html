@@ -13,6 +13,8 @@
         body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
         .btn:hover { transform: translateY(-1px); }
         .card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .spinner { border-top-color: #007bff; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="p-4 sm:p-6 lg:p-8 min-h-screen">
@@ -51,7 +53,8 @@
                 <h3 class="text-xl font-bold text-gray-800">Discussion Summary</h3>
                 <button id="close-summary-btn" class="text-gray-500 hover:text-gray-800 text-3xl font-light">&times;</button>
             </div>
-            <div id="summary-content" class="max-h-96 overflow-y-auto mb-4">
+            <div id="summary-content" class="max-h-96 overflow-y-auto mb-4 p-2">
+                <div class="spinner w-8 h-8 mx-auto border-4 rounded-full border-gray-200 border-t-blue-500"></div>
                 <p class="text-center text-gray-600 mt-2">Generating summary...</p>
             </div>
             <button id="copy-summary-btn" class="btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-lg shadow transition-all duration-300">
@@ -91,7 +94,7 @@
             <h2 class="text-lg font-semibold mb-4">Active Discussion Topics</h2>
             <p class="text-sm text-gray-600 mb-4">Click "Join" to moderate chats. You can also delete topics.</p>
             <ul id="discussion-topics-list" class="space-y-4">
-                 <li id="no-discussions-message" class="text-center text-gray-500">No active discussions found.</li>
+                 <li id="no-discussions-message" class="text-center text-gray-500 hidden">No active discussions found.</li>
             </ul>
         </section>
     </div>
@@ -133,9 +136,10 @@
         const summaryContent = document.getElementById("summary-content");
         const closeSummaryBtn = document.getElementById("close-summary-btn");
         const copySummaryBtn = document.getElementById("copy-summary-btn");
+        const summarySpinner = summaryContent.querySelector('.spinner');
 
         let currentTopicId = null;
-        let currentUserEmail = '{{ admin_email }}'; // Get admin email from Flask context
+        let currentUserEmail = '{{ admin_email }}';
 
         function showModal(title, msg) {
             modalTitle.textContent = title;
@@ -161,22 +165,21 @@
         }
 
         leaveRoomBtn.addEventListener("click", hideChatModal);
-
-        function showSummaryModal() {
+        
+        function showSummaryModal(topicId) {
             summaryModal.classList.remove("hidden");
             summaryContent.innerHTML = `
                 <div class="spinner w-8 h-8 mx-auto border-4 rounded-full border-gray-200 border-t-blue-500"></div>
                 <p class="text-center text-gray-600 mt-2">Generating summary...</p>
             `;
-            if (currentTopicId) generateDiscussionSummary(currentTopicId);
+            generateDiscussionSummary(topicId);
         }
-
         function hideSummaryModal() {
             summaryModal.classList.add("hidden");
             summaryContent.innerHTML = "";
         }
-
         closeSummaryBtn.addEventListener("click", hideSummaryModal);
+
         copySummaryBtn.addEventListener("click", () => {
             const summaryText = summaryContent.textContent;
             navigator.clipboard.writeText(summaryText).then(() => {
@@ -216,9 +219,9 @@
                 const topics = await response.json();
                 discussionTopicsListEl.innerHTML = "";
                 if (topics.length === 0) {
-                    noDiscussionsMessageEl.style.display = 'block';
+                    noDiscussionsMessageEl.classList.remove('hidden');
                 } else {
-                     noDiscussionsMessageEl.style.display = 'none';
+                    noDiscussionsMessageEl.classList.add('hidden');
                     topics.forEach(topic => {
                         const li = document.createElement("li");
                         li.dataset.id = topic.id;
@@ -276,7 +279,7 @@
                 const data = await response.json();
                 const summaryText = data.summary;
 
-                // Convert newlines or dashes into bullets for readability
+                // Implement the formatting logic as discussed
                 const formatted = summaryText
                     .split(/\n|•|-/)
                     .map(line => line.trim())
