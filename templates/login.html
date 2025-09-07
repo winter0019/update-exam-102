@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NYSC Exam Prep - Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="flex items-center justify-center min-h-screen bg-gray-100">
+  <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-lg">
+    <h1 class="text-2xl font-bold text-center mb-6">NYSC Exam Prep</h1>
+
+    <div id="error-message" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4"></div>
+
+    <form id="login-form" class="space-y-6">
+      <div>
+        <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+        <input type="email" id="email" name="email" required
+               class="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm focus:ring-blue-500 focus:border-blue-500">
+      </div>
+      <div>
+        <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+        <input type="password" id="password" name="password" required
+               class="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm focus:ring-blue-500 focus:border-blue-500">
+      </div>
+      <button type="submit"
+              class="w-full py-2 px-4 bg-blue-600 text-white rounded-md shadow hover:bg-blue-700" id="loginBtn">
+        Sign In
+      </button>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById("login-form");
+    const errorBox = document.getElementById("error-message");
+
+    function showError(msg) {
+      errorBox.textContent = msg;
+      errorBox.classList.remove("hidden");
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = e.target.email.value.trim().toLowerCase();
+      const password = e.target.password.value.trim();
+
+      try {
+        const res = await fetch("/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          // Redirect depending on role
+          if (data.role === "admin") {
+            window.location.href = "/dashboard";
+          } else {
+            window.location.href = "/quiz";
+          }
+        } else {
+          showError(data.error || "Login failed");
+        }
+      } catch (err) {
+        showError("Error connecting to server");
+      }
+    });
+  </script>
+</body>
+</html>

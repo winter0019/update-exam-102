@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NYSC Exam Prep - User Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
+        .btn:hover { transform: translateY(-1px); }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body class="p-4 sm:p-6 lg:p-8 min-h-screen">
+    <div class="container mx-auto max-w-4xl bg-white p-6 sm:p-8 rounded-xl shadow-lg">
+        <div class="flex flex-col sm:flex-row justify-between items-center pb-5 border-b-2 border-gray-200 mb-6">
+            <h2 class="text-3xl sm:text-4xl font-bold text-blue-600 mb-4 sm:mb-0">
+                <i class="fas fa-graduation-cap mr-2"></i> NYSC Exam Dashboard
+            </h2>
+            <div class="flex items-center space-x-4">
+                <p id="welcome-message" class="text-gray-700 font-semibold hidden sm:block">Welcome, <span id="user-email-display"></span></p>
+                <button id="logoutBtn" class="btn bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-all duration-300">
+                    <i class="fas fa-sign-out-alt mr-2"></i> Logout
+                </button>
+            </div>
+        </div>
+
+        <p id="status-message" class="mb-4 text-gray-600">Authenticating...</p>
+        
+        <section class="card bg-gray-50 p-6 rounded-xl border border-gray-200 mb-6 transition-all duration-200">
+            <h2 class="text-xl font-bold text-gray-800 mb-3"><i class="fas fa-users mr-2"></i> Live Statistics</h2>
+            <p class="text-sm text-gray-600 mb-4">Online user data updates every 10 seconds.</p>
+            <p class="text-gray-700">Online Users: <span id="online-users" class="font-bold text-lg">...</span></p>
+            <ul id="online-users-list" class="mt-2 space-y-1"></ul>
+        </section>
+
+        <section class="card bg-gray-50 p-6 rounded-xl border border-gray-200 mb-6 transition-all duration-200">
+            <h2 class="text-xl font-bold text-gray-800 mb-3"><i class="fas fa-comments mr-2"></i> Active Discussion Topics</h2>
+            <p class="text-sm text-gray-600 mb-4">Click "Join" to participate in a discussion.</p>
+            <ul id="discussion-topics-list" class="space-y-4">
+                <li id="no-discussions-message" class="text-center text-gray-500">No active discussions found.</li>
+            </ul>
+        </section>
+        
+        <div id="chat-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm">
+            <div class="bg-white rounded-xl shadow-2xl w-11/12 max-w-2xl h-[80%] flex flex-col p-6 relative">
+                <div class="flex justify-between items-center mb-4 pb-2 border-b">
+                    <h3 class="text-2xl font-bold text-gray-800" id="chat-modal-title">Discussion Room</h3>
+                    <button id="leave-room-btn" class="text-gray-500 hover:text-gray-800 text-3xl font-light">&times;</button>
+                </div>
+                <p id="chat-topic-question" class="text-gray-600 italic mb-4 text-sm"></p>
+                <div id="chat-message-list" class="flex-1 overflow-y-auto border border-gray-200 rounded-lg p-3 space-y-3 mb-4"></div>
+                <form id="send-message-form" class="flex gap-2">
+                    <input id="message-input" type="text" placeholder="Type your message..." class="flex-1 rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 p-3 text-sm" autocomplete="off" />
+                    <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // --- API Endpoints ---
+        const API_URLS = {
+            onlineUsers: '/api/online_users',
+            discussions: '/api/discussions',
+            messages: (topicId) => `/api/discussions/${topicId}/messages`,
+            ping: '/api/ping',
+            logout: '/logout'
+        };
+
+        // --- DOM Elements ---
+        const statusMessageEl = document.getElementById("status-message");
+        const onlineUsersEl = document.getElementById("online-users");
+        const onlineUsersListEl = document.getElementById("online-users-list");
+        const discussionTopicsListEl = document.getElementById("discussion-topics-list");
+        const logoutBtn = document.getElementById("logoutBtn");
+        const welcomeMessageEl = document.getElementById("welcome-message");
+        const userEmailDisplayEl = document.getElementById("user-email-display");
+        const noDiscussionsMessageEl = document.getElementById("no-discussions-message");
+
+        // --- Chat Modal Elements ---
+        const chatModal = document.getElementById("chat-modal");
+        const chatTopicQuestion = document.getElementById("chat-topic-question");
+        const chatMessageList = document.getElementById("chat-message-list");
+        const sendMessageForm = document.getElementById("send-message-form");
+        const messageInput = document.getElementById("message-input");
+        const leaveRoomBtn = document.getElementById("leave-room-btn");
+
+        let currentTopicId = null;
+        let currentUserEmail = '{{ email }}'; // Get user email from Flask context
+
+        // --- Modal Control Functions ---
+        function showChatModal(topicId, question) {
+            currentTopicId = topicId;
+            chatTopicQuestion.textContent = question;
+            chatModal.classList.remove("hidden");
+            fetchMessages(topicId);
+        }
+
+        function hideChatModal() {
+            currentTopicId = null;
+            chatModal.classList.add("hidden");
+            chatMessageList.innerHTML = "";
+        }
+
+        leaveRoomBtn.addEventListener("click", hideChatModal);
+
+        // --- Polling Functions ---
+        async function fetchOnlineUsers() {
+            try {
+                const response = await fetch(API_URLS.onlineUsers);
+                if (!response.ok) throw new Error("Failed to fetch online users.");
+                const data = await response.json();
+                onlineUsersEl.textContent = data.count;
+                onlineUsersListEl.innerHTML = "";
+                if (data.users.length === 0) {
+                    onlineUsersListEl.innerHTML = '<li class="text-gray-500 text-sm">No users currently online.</li>';
+                } else {
+                    data.users.forEach(user => {
+                        const li = document.createElement("li");
+                        li.className = "flex items-center gap-2 text-gray-700 text-sm";
+                        li.innerHTML = `<span class="text-green-500">•</span>${user.email} (${user.role})`;
+                        onlineUsersListEl.appendChild(li);
+                    });
+                }
+            } catch (error) {
+                console.error("Online users fetch error:", error);
+            }
+        }
+
+        async function fetchDiscussions() {
+            try {
+                const response = await fetch(API_URLS.discussions);
+                if (!response.ok) throw new Error("Failed to fetch discussions.");
+                const topics = await response.json();
+                discussionTopicsListEl.innerHTML = "";
+                if (topics.length === 0) {
+                    noDiscussionsMessageEl.style.display = 'block';
+                } else {
+                    noDiscussionsMessageEl.style.display = 'none';
+                    topics.forEach(topic => {
+                        const li = document.createElement("li");
+                        li.dataset.id = topic.id;
+                        li.className = "card bg-white p-4 rounded-lg shadow border border-gray-200 flex flex-col gap-2 cursor-pointer transition-all duration-200";
+                        const postedDate = topic.created_at?.toDate ? new Date(topic.created_at.toDate()).toLocaleString() : 'N/A';
+                        li.innerHTML = `
+                            <p class="font-semibold text-gray-800">${topic.question}</p>
+                            <p class="text-xs text-gray-500">Posted by: ${topic.author} on ${postedDate}</p>
+                            <button class="join-btn btn w-full sm:w-auto mt-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow">Join Discussion</button>
+                        `;
+                        li.querySelector(".join-btn").addEventListener("click", () => showChatModal(topic.id, topic.question));
+                        discussionTopicsListEl.appendChild(li);
+                    });
+                }
+            } catch (error) {
+                console.error("Discussions fetch error:", error);
+            }
+        }
+
+        async function fetchMessages(topicId) {
+            try {
+                const response = await fetch(API_URLS.messages(topicId));
+                if (!response.ok) throw new Error("Failed to fetch messages.");
+                const messages = await response.json();
+                chatMessageList.innerHTML = "";
+                messages.forEach(msg => {
+                    const div = document.createElement("div");
+                    const isAdmin = msg.is_admin || (msg.author === 'dangalan20@gmail.com');
+                    const isCurrentUser = msg.author === currentUserEmail;
+                    let authorText = isCurrentUser ? 'You' : (isAdmin ? 'Admin' : msg.author.split('@')[0]);
+                    
+                    div.className = `max-w-[80%] p-3 rounded-lg text-sm ${isCurrentUser ? 'bg-blue-600 text-white self-end' : 'bg-gray-200 text-gray-800 self-start'}`;
+                    
+                    div.innerHTML = `<p class="font-bold text-xs mb-1">${authorText}</p><p>${msg.text}</p>`;
+                    chatMessageList.appendChild(div);
+                });
+                chatMessageList.scrollTop = chatMessageList.scrollHeight;
+            } catch (error) {
+                console.error("Messages fetch error:", error);
+            }
+        }
+
+        async function pingBackend() {
+            try {
+                await fetch(API_URLS.ping, { method: "POST" });
+                statusMessageEl.textContent = "Dashboard loaded successfully!";
+                welcomeMessageEl.style.display = 'block';
+                userEmailDisplayEl.textContent = currentUserEmail;
+            } catch (error) {
+                console.error("Ping error:", error);
+            }
+        }
+
+        // --- Event Listeners ---
+        logoutBtn.addEventListener("click", async () => {
+            try {
+                const response = await fetch(API_URLS.logout, { method: "POST" });
+                if (response.ok) window.location.href = "/login";
+            } catch (error) {
+                console.error("Logout failed:", error);
+            }
+        });
+
+        sendMessageForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const message = messageInput.value.trim();
+            if (!message || !currentTopicId) return;
+
+            try {
+                const response = await fetch(API_URLS.messages(currentTopicId), {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message })
+                });
+                if (!response.ok) throw new Error("Failed to send message.");
+                messageInput.value = "";
+                fetchMessages(currentTopicId); // Refresh messages after sending
+            } catch (error) {
+                console.error("Message send error:", error);
+            }
+        });
+        
+        // --- Initial Load & Polling ---
+        document.addEventListener("DOMContentLoaded", () => {
+            pingBackend();
+            fetchOnlineUsers();
+            fetchDiscussions();
+            // Set up polling for online users and discussions
+            setInterval(pingBackend, 10000);
+            setInterval(fetchOnlineUsers, 10000);
+            setInterval(fetchDiscussions, 10000);
+        });
+    </script>
+</body>
+</html>
