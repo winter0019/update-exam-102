@@ -1,0 +1,14 @@
+flask
+flask-cors
+python-docx
+google-generativeai
+python-dotenv
+gunicorn
+PyPDF2
+pytesseract
+PyMuPDF
+Flask-Limiter
+firebase_admin
+loguru
+gnews
+
