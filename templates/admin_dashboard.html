@@ -54,7 +54,6 @@
                 <button id="close-summary-btn" class="text-gray-500 hover:text-gray-800 text-3xl font-light">&times;</button>
             </div>
             <div id="summary-content" class="max-h-96 overflow-y-auto mb-4 p-2">
-                <div class="spinner w-8 h-8 mx-auto border-4 rounded-full border-gray-200 border-t-blue-500"></div>
                 <p class="text-center text-gray-600 mt-2">Generating summary...</p>
             </div>
             <button id="copy-summary-btn" class="btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-lg shadow transition-all duration-300">
@@ -136,7 +135,6 @@
         const summaryContent = document.getElementById("summary-content");
         const closeSummaryBtn = document.getElementById("close-summary-btn");
         const copySummaryBtn = document.getElementById("copy-summary-btn");
-        const summarySpinner = summaryContent.querySelector('.spinner');
 
         let currentTopicId = null;
         let currentUserEmail = '{{ admin_email }}';
@@ -168,16 +166,15 @@
         
         function showSummaryModal(topicId) {
             summaryModal.classList.remove("hidden");
-            summaryContent.innerHTML = `
-                <div class="spinner w-8 h-8 mx-auto border-4 rounded-full border-gray-200 border-t-blue-500"></div>
-                <p class="text-center text-gray-600 mt-2">Generating summary...</p>
-            `;
+            summaryContent.innerHTML = `<p class="text-center text-gray-600 mt-2">Generating summary...</p>`;
             generateDiscussionSummary(topicId);
         }
+
         function hideSummaryModal() {
             summaryModal.classList.add("hidden");
             summaryContent.innerHTML = "";
         }
+
         closeSummaryBtn.addEventListener("click", hideSummaryModal);
 
         copySummaryBtn.addEventListener("click", () => {
@@ -226,7 +223,7 @@
                         const li = document.createElement("li");
                         li.dataset.id = topic.id;
                         li.className = "bg-white p-4 rounded-lg shadow border border-gray-200 flex flex-col gap-2 topic-item";
-                        const postedDate = topic.created_at?.toDate ? new Date(topic.created_at.toDate()).toLocaleString() : 'N/A';
+                        const postedDate = new Date(topic.created_at).toLocaleString();
                         li.innerHTML = `
                             <p class="font-semibold text-gray-800">${topic.question}</p>
                             <p class="text-xs text-gray-500">Posted by: ${topic.author} on ${postedDate}</p>
