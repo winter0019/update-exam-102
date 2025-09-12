@@ -1,243 +1,180 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NYSC Exam Prep - Quiz</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
-        .btn:hover { transform: translateY(-1px); }
-        .card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
-        .spinner { border-top-color: #007bff; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        /* Style for correct/incorrect answers */
-        .option.correct { background-color: #d1fae5; border-color: #34d399; }
-        .option.incorrect { background-color: #fee2e2; border-color: #f87171; }
-        .option-text { margin-left: 0.75rem; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NYSC Exam Prep - Quiz</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); }
+    .option.correct { background-color: #d1fae5; border-color: #34d399; }
+    .option.incorrect { background-color: #fee2e2; border-color: #f87171; }
+  </style>
 </head>
-<body class="p-4 sm:p-6 lg:p-8 min-h-screen">
-    <div class="container mx-auto max-w-4xl bg-white p-6 sm:p-8 rounded-xl shadow-lg">
+<body class="p-4 min-h-screen">
+  <div class="container mx-auto max-w-4xl bg-white p-6 rounded-xl shadow-lg">
 
-        <div class="flex flex-col sm:flex-row justify-between items-center pb-5 border-b-2 border-gray-200 mb-6">
-            <h2 class="text-3xl sm:text-4xl font-bold text-blue-600 mb-4 sm:mb-0">
-                <i class="fas fa-question-circle mr-2"></i> Quiz Generator
-            </h2>
-            <div class="flex space-x-2">
-                <a href="/dashboard" class="btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-lg shadow transition-all duration-300">
-                    <i class="fas fa-tachometer-alt mr-2"></i> Dashboard
-                </a>
-                <button id="logoutBtn" class="btn bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-all duration-300">
-                    <i class="fas fa-sign-out-alt mr-2"></i> Logout
-                </button>
-            </div>
-        </div>
-
-        <div id="quizContainer">
-            <div class="card bg-gray-50 p-6 rounded-xl border border-gray-200 mb-6 transition-all duration-200">
-                <h3 class="text-xl font-bold text-gray-800 mb-3">Generate Quiz from Documents</h3>
-                <form id="quizForm" class="space-y-4">
-                    <div>
-                        <label for="gradeLevelSelect" class="block font-semibold text-gray-700">Grade Level:</label>
-                        <select id="gradeLevelSelect" name="grade" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200 p-2">
-                            <option value="GL8">GL8</option>
-                            <option value="GL9">GL9</option>
-                            <option value="GL10" selected>GL10</option>
-                            <option value="GL12">GL12</option>
-                            <option value="GL13">GL13</option>
-                            <option value="GL14">GL14</option>
-                            <option value="GL15">GL15</option>
-                            <option value="GL16">GL16</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="subjectInput" class="block font-semibold text-gray-700">Subject:</label>
-                        <input type="text" id="subjectInput" name="subject" placeholder="e.g., Public Service Rules" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2">
-                    </div>
-                    <div>
-                        <label for="fileInput" class="block font-semibold text-gray-700">Upload a Document (DOCX, PDF, or Image):</label>
-                        <input type="file" id="fileInput" name="document" accept=".docx,.pdf,.png,.jpg,.jpeg" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
-                    </div>
-                    <button type="submit" id="generateQuizBtn" class="btn w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg shadow-md transition-all duration-300 flex items-center justify-center space-x-2">
-                        <i class="fas fa-cogs"></i>
-                        <span>Generate Quiz</span>
-                    </button>
-                </form>
-            </div>
-
-            <div id="loading" class="hidden text-center py-4">
-                <div class="spinner w-8 h-8 mx-auto border-4 rounded-full border-gray-200 border-t-blue-500"></div>
-                <p class="text-gray-600 mt-2">Generating your quiz...</p>
-            </div>
-            
-            <div id="quizResult" class="hidden mt-6 bg-gray-100 p-6 rounded-xl border-l-4 border-blue-500">
-                <h4 class="text-lg font-bold text-gray-800 mb-4"><i class="fas fa-tasks mr-2"></i> Generated Quiz</h4>
-                <div id="quizContent" class="space-y-6"></div>
-                <div class="flex flex-col sm:flex-row justify-between items-center mt-6 space-y-4 sm:space-y-0 sm:space-x-4">
-                    <button id="submitQuizBtn" class="btn w-full sm:w-auto bg-green-500 hover:bg-green-600 text-white font-semibold py-2.5 px-4 rounded-lg shadow transition-all duration-300">
-                        <i class="fas fa-check-circle mr-2"></i> Submit Answers
-                    </button>
-                    <button id="newQuizBtn" class="btn w-full sm:w-auto bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2.5 px-4 rounded-lg shadow transition-all duration-300 hidden">
-                        <i class="fas fa-plus-circle mr-2"></i> Generate New Quiz
-                    </button>
-                </div>
-                <div id="scoreContainer" class="hidden text-center py-4 mt-4 bg-gray-200 rounded-lg font-semibold">
-                    Your score: <span id="score" class="text-green-600">0</span> out of <span id="total" class="text-blue-600">0</span>
-                </div>
-            </div>
-            <div id="errorMessage" class="hidden bg-red-100 text-red-700 p-3 rounded-lg mt-4 border-l-4 border-red-500"></div>
-        </div>
+    <div class="flex justify-between items-center pb-4 border-b mb-6">
+      <h2 class="text-3xl font-bold text-blue-600">
+        <i class="fas fa-question-circle mr-2"></i> Quiz Generator
+      </h2>
+      <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg">
+        <i class="fas fa-sign-out-alt mr-2"></i> Logout
+      </button>
     </div>
 
-    <script>
-        const quizForm = document.getElementById("quizForm");
-        const loadingDiv = document.getElementById("loading");
-        const quizResultDiv = document.getElementById("quizResult");
-        const quizContentDiv = document.getElementById("quizContent");
-        const submitQuizBtn = document.getElementById("submitQuizBtn");
-        const newQuizBtn = document.getElementById("newQuizBtn");
-        const scoreContainer = document.getElementById("scoreContainer");
-        const scoreSpan = document.getElementById("score");
-        const totalSpan = document.getElementById("total");
-        const errorMessageDiv = document.getElementById("errorMessage");
-        const logoutBtn = document.getElementById("logoutBtn");
-        const fileInput = document.getElementById("fileInput");
-        const generateQuizBtn = document.getElementById("generateQuizBtn");
+    <!-- Mode Selection -->
+    <div class="mb-6">
+      <label class="block font-semibold text-gray-700 mb-2">Select Quiz Type:</label>
+      <select id="quizMode" class="w-full border-gray-300 rounded-lg p-2">
+        <option value="document">📄 Document Upload</option>
+        <option value="current_affairs">🌍 Current Affairs</option>
+      </select>
+    </div>
 
-        let currentQuizData = null;
+    <!-- Document Upload Form -->
+    <form id="quizForm" class="space-y-4">
+      <div id="documentFields">
+        <label class="block font-semibold text-gray-700">Upload a Document:</label>
+        <input type="file" id="fileInput" name="document"
+          accept=".docx,.pdf,.png,.jpg,.jpeg"
+          class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4
+          file:rounded-full file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700">
+      </div>
+      <button type="submit" id="generateQuizBtn"
+        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg">
+        <i class="fas fa-cogs mr-2"></i> Generate Quiz
+      </button>
+    </form>
 
-        logoutBtn.addEventListener('click', async () => {
-            const response = await fetch('/logout', { method: 'POST' });
-            if (response.ok) {
-                window.location.href = '/login';
-            }
-        });
+    <!-- Loading -->
+    <div id="loading" class="hidden text-center py-4">
+      <div class="spinner w-8 h-8 mx-auto border-4 border-gray-200 border-t-blue-500 rounded-full animate-spin"></div>
+      <p class="text-gray-600 mt-2">Generating your quiz...</p>
+    </div>
 
-        quizForm.addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const formData = new FormData(quizForm);
+    <!-- Quiz Results -->
+    <div id="quizResult" class="hidden mt-6 bg-gray-100 p-6 rounded-xl">
+      <h4 class="text-lg font-bold mb-4"><i class="fas fa-tasks mr-2"></i> Generated Quiz</h4>
+      <div id="quizContent" class="space-y-6"></div>
+      <div class="flex justify-between mt-6">
+        <button id="submitQuizBtn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">
+          Submit Answers
+        </button>
+        <button id="newQuizBtn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg hidden">
+          New Quiz
+        </button>
+      </div>
+      <div id="scoreContainer" class="hidden text-center mt-4 bg-gray-200 py-3 rounded-lg">
+        Score: <span id="score" class="text-green-600">0</span>/<span id="total" class="text-blue-600">0</span>
+      </div>
+    </div>
 
-            loadingDiv.classList.remove('hidden');
-            quizResultDiv.classList.add('hidden');
-            errorMessageDiv.classList.add('hidden');
-            generateQuizBtn.disabled = true;
+    <div id="errorMessage" class="hidden bg-red-100 text-red-700 p-3 rounded-lg mt-4"></div>
+  </div>
 
-            try {
-                const response = await fetch('/api/quiz/upload', {
-                    method: 'POST',
-                    body: formData,
-                });
+<script>
+const quizForm = document.getElementById("quizForm");
+const quizMode = document.getElementById("quizMode");
+const fileInput = document.getElementById("fileInput");
+const loadingDiv = document.getElementById("loading");
+const quizResultDiv = document.getElementById("quizResult");
+const quizContentDiv = document.getElementById("quizContent");
+const submitQuizBtn = document.getElementById("submitQuizBtn");
+const newQuizBtn = document.getElementById("newQuizBtn");
+const scoreContainer = document.getElementById("scoreContainer");
+const scoreSpan = document.getElementById("score");
+const totalSpan = document.getElementById("total");
+const errorMessageDiv = document.getElementById("errorMessage");
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to generate quiz.');
-                }
+let currentQuizData = null;
 
-                const quiz = await response.json();
-                currentQuizData = quiz.questions;
-                if (!currentQuizData || currentQuizData.length === 0) {
-                    throw new Error('No valid questions were generated from the document.');
-                }
+// Logout
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await fetch("/logout");
+  window.location.href = "/login";
+});
 
-                renderQuiz(currentQuizData);
-                quizResultDiv.classList.remove('hidden');
-                quizResultDiv.scrollIntoView({ behavior: 'smooth' });
+// Handle quiz submission
+quizForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  loadingDiv.classList.remove("hidden");
+  quizResultDiv.classList.add("hidden");
+  errorMessageDiv.classList.add("hidden");
 
-            } catch (error) {
-                errorMessageDiv.textContent = error.message;
-                errorMessageDiv.classList.remove('hidden');
-            } finally {
-                loadingDiv.classList.add('hidden');
-                generateQuizBtn.disabled = false;
-            }
-        });
+  try {
+    let response;
 
-        function renderQuiz(quiz) {
-            quizContentDiv.innerHTML = '';
-            quiz.forEach((q, index) => {
-                const questionElement = document.createElement('div');
-                questionElement.className = 'question mb-6 pb-4 border-b border-gray-300';
-                questionElement.id = `question${index}`;
-                questionElement.innerHTML = `
-                    <div class="font-semibold text-lg text-gray-800 mb-3">${index + 1}. ${q.question}</div>
-                    <div class="space-y-2">
-                        ${q.options.map((opt) => {
-                            return `
-                                <label class="option flex items-start p-3 rounded-lg border border-gray-300 transition-colors duration-200 hover:bg-gray-100 cursor-pointer">
-                                    <input type="radio" name="q${index}" value="${opt}" class="mt-1 mr-3">
-                                    <span class="option-text flex-1">${opt}</span>
-                                </label>
-                            `;
-                        }).join('')}
-                    </div>
-                `;
-                quizContentDiv.appendChild(questionElement);
-            });
-            
-            submitQuizBtn.classList.remove('hidden');
-            newQuizBtn.classList.add('hidden');
-            scoreContainer.classList.add('hidden');
-        }
+    if (quizMode.value === "document") {
+      const formData = new FormData();
+      formData.append("mode", "document");
+      if (fileInput.files[0]) {
+        formData.append("content", "Sample extracted text from uploaded doc"); // placeholder
+      }
+      response = await fetch("/generate_quiz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "document", content: "Sample text about Nigeria." })
+      });
+    } else {
+      response = await fetch("/generate_quiz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "current_affairs" })
+      });
+    }
 
-        submitQuizBtn.addEventListener('click', () => {
-            if (!currentQuizData) return;
-            
-            let score = 0;
-            const total = currentQuizData.length;
-            
-            currentQuizData.forEach((q, index) => {
-                const selectedOption = document.querySelector(`input[name="q${index}"]:checked`);
-                const questionElement = document.getElementById(`question${index}`);
-                
-                // Reset previous styles
-                questionElement.querySelectorAll('.option').forEach(el => el.classList.remove('correct', 'incorrect'));
-                
-                // Get correct answer's option element
-                const correctOptionEl = questionElement.querySelector(`input[value="${q.answer}"]`);
-                if (correctOptionEl) {
-                    correctOptionEl.parentElement.classList.add('correct');
-                }
+    if (!response.ok) throw new Error("Quiz generation failed");
+    const quiz = await response.json();
+    currentQuizData = quiz.questions;
 
-                if (selectedOption) {
-                    const selectedValue = selectedOption.value;
-                    if (selectedValue === q.answer) {
-                        score++;
-                    } else {
-                        selectedOption.parentElement.classList.add('incorrect');
-                    }
-                }
-                
-                questionElement.querySelectorAll('input').forEach(input => input.disabled = true);
-            });
+    renderQuiz(currentQuizData);
+    quizResultDiv.classList.remove("hidden");
+  } catch (err) {
+    errorMessageDiv.textContent = err.message;
+    errorMessageDiv.classList.remove("hidden");
+  } finally {
+    loadingDiv.classList.add("hidden");
+  }
+});
 
-            scoreSpan.textContent = score;
-            totalSpan.textContent = total;
-            scoreContainer.classList.remove('hidden');
-            submitQuizBtn.classList.add('hidden');
-            newQuizBtn.classList.remove('hidden');
-            
-            // Scroll to the score container
-            scoreContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
+function renderQuiz(quiz) {
+  quizContentDiv.innerHTML = "";
+  quiz.forEach((q, i) => {
+    quizContentDiv.innerHTML += `
+      <div class="mb-4 border-b pb-3">
+        <p class="font-semibold">${i + 1}. ${q.question}</p>
+        ${q.options.map(opt => `
+          <label class="option flex items-center p-2 border rounded-lg mb-2 cursor-pointer">
+            <input type="radio" name="q${i}" value="${opt}" class="mr-2">
+            ${opt}
+          </label>
+        `).join("")}
+      </div>`;
+  });
+}
 
-        newQuizBtn.addEventListener('click', () => {
-            quizForm.reset();
-            quizResultDiv.classList.add('hidden');
-            currentQuizData = null;
-        });
+submitQuizBtn.addEventListener("click", () => {
+  let score = 0;
+  const total = currentQuizData.length;
 
-        // Add a simple check to ensure a file is selected before submission
-        quizForm.addEventListener('submit', (e) => {
-            if (!fileInput.files.length) {
-                e.preventDefault();
-                alert('Please select a file to generate a quiz.');
-            }
-        });
-    </script>
+  currentQuizData.forEach((q, i) => {
+    const selected = document.querySelector(`input[name="q${i}"]:checked`);
+    const correctOption = document.querySelector(`input[name="q${i}"][value="${q.answer}"]`);
+    if (correctOption) correctOption.parentElement.classList.add("correct");
+    if (selected && selected.value !== q.answer) selected.parentElement.classList.add("incorrect");
+    if (selected && selected.value === q.answer) score++;
+  });
+
+  scoreSpan.textContent = score;
+  totalSpan.textContent = total;
+  scoreContainer.classList.remove("hidden");
+  submitQuizBtn.classList.add("hidden");
+  newQuizBtn.classList.remove("hidden");
+});
+
+newQuizBtn.addEventListener("click", () => window.location.reload());
+</script>
 </body>
 </html>
