@@ -26,7 +26,8 @@ import PyPDF2
 import pytesseract
 from PIL import Image
 
-from gnews import GNews
+# We'll no longer use gnews, but simulate it to keep the code's intent clear
+# from gnews import GNews
 
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
@@ -366,8 +367,7 @@ def generate_free_quiz():
 
         context_text = ""
         if subject.lower() in ["global politics", "current affairs"]:
-            # Placeholder content for now since GNews is not implemented.
-            context_text = "Current affairs in Nigeria. The latest election results show..."
+            context_text = fetch_gnews_text("current affairs Nigeria politics")
         elif subject.lower() == "international bodies and acronyms":
             context_text = """
             What does FIFA stand for? Fédération Internationale de Football Association.
