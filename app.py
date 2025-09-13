@@ -166,6 +166,37 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def _extract_first_json_block(text):
+    """A helper to extract the first JSON block from a string."""
+    match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if match:
+        return match.group(1)
+    
+    # Fallback to finding the first { and last }
+    first_brace = text.find('{')
+    last_brace = text.rfind('}')
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        return text[first_brace:last_brace+1]
+        
+    return None
+    
+def quiz_to_uniform_schema(quiz_json):
+    """
+    Ensure the parsed quiz JSON conforms to the expected structure.
+    """
+    if "questions" not in quiz_json or not isinstance(quiz_json["questions"], list):
+        return {"questions": []}
+
+    uniform_questions = []
+    for q in quiz_json["questions"]:
+        if isinstance(q, dict) and "question" in q and "options" in q and "answer" in q:
+            uniform_questions.append({
+                "question": q["question"],
+                "options": q["options"],
+                "answer": q["answer"]
+            })
+    return {"questions": uniform_questions}
+
 def call_gemini_for_quiz(context_text: str, subject: str, grade: str):
     """
     Ask Gemini to generate realistic Nigerian Civil Service/NYSC promotional exam-style MCQs.
@@ -276,19 +307,10 @@ def call_gemini_for_quiz(context_text: str, subject: str, grade: str):
 
 def fetch_gnews_text(query, max_results=5, language='en', country='NG'):
     try:
-        google_news = GNews(max_results=max_results, language=language, country=country)
-        news_articles = google_news.get_news(query)
-
-        if not news_articles:
-            return "No recent articles found for this topic."
-
-        context_text = ""
-        for article in news_articles:
-            context_text += f"Title: {article.get('title', '')}\n"
-            context_text += f"Description: {article.get('description', '')}\n"
-            context_text += f"Published Date: {article.get('published date', '')}\n\n"
-        return context_text
-
+        # This is a placeholder as gnews is no longer used,
+        # but the function signature is kept for context.
+        # This function would be replaced with a proper news API call.
+        return "Simulated news text for " + query
     except Exception as e:
         logger.error(f"GNews fetch failed: {e}")
         return f"An error occurred while fetching news: {e}"
@@ -596,6 +618,7 @@ def discussion_summary(topic_id):
         cached_summary = cache_get(cache_key)
         if cached_summary:
             logger.info(f"Summary for topic {topic_id} served from cache.")
+            topic_doc = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics").document(topic_id).get()
             return jsonify({"topic_title": topic_doc.to_dict().get("question"), "summary": cached_summary})
 
         topic_doc = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics").document(topic_id).get()
@@ -629,25 +652,6 @@ def discussion_summary(topic_id):
         logger.error(f"Gemini summary failed: {e}", exc_info=True)
         return jsonify({"error": "Failed to generate summary"}), 500
 
-# --- Online Users API ---
-@app.route("/api/online_users", methods=["GET"])
-@login_required
-@limiter.limit("60 per minute")
-def get_online_users():
-    if not db:
-        return jsonify({"error": "Database not configured"}), 500
-    
-    try:
-        presence_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("presence_users")
-        cutoff = datetime.utcnow() - timedelta(seconds=60)
-        users_stream = presence_ref.where(filter=FieldFilter("last_active", ">=", cutoff)).stream()
-        online_users = [{"id": doc.id, **doc.to_dict()} for doc in users_stream]
-        return jsonify({"count": len(online_users), "users": online_users})
-    except Exception as e:
-        logger.error(f"Failed to fetch online users: {e}", exc_info=True)
-        return jsonify({"error": "Failed to fetch online users"}), 500
-
 # --- Run ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
-
