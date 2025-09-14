@@ -107,18 +107,13 @@ quizForm.addEventListener("submit", async (e) => {
     let response;
 
     if (quizMode.value === "document") {
-      const formData = new FormData();
-      formData.append("mode", "document");
-      if (fileInput.files[0]) {
-        formData.append("content", "Sample extracted text from uploaded doc"); // placeholder
-      }
-      response = await fetch("/generate_quiz", {
+      response = await fetch("/api/generate_quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "document", content: "Sample text about Nigeria." })
       });
     } else {
-      response = await fetch("/generate_quiz", {
+      response = await fetch("/api/generate_quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "current_affairs" })
