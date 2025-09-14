@@ -26,9 +26,6 @@ import PyPDF2
 import pytesseract
 from PIL import Image
 
-# We'll no longer use gnews, but simulate it to keep the code's intent clear
-# from gnews import GNews
-
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -404,7 +401,7 @@ def quiz():
     return render_template("quiz.html")
 
 # --- Free Trial Quiz API ---
-@app.route("/api/quiz/free", methods=["POST"])
+@app.route("/api/quiz/free_trial", methods=["POST"])
 @login_required
 def generate_free_quiz():
     try:
