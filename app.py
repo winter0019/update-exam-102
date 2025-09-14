@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# app.py
 import os
 import re
 import json
@@ -40,6 +40,9 @@ if not GEMINI_API_KEY:
     raise RuntimeError("GEMINI_API_KEY is not set")
 genai.configure(api_key=GEMINI_API_KEY)
 
+# --- GNews API Key (set in env) ---
+GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")  # set this in your environment to your GNews key
+
 # --- Flask App Setup ---
 app = Flask(__name__, template_folder="templates", static_folder="static")
 CORS(app)
@@ -79,9 +82,9 @@ ALLOWED_USERS = {
     "omnibuszara@gmail.com", "mssphartyma@gmail.com", "assyy.au@gmail.com",
     "shenyshehu@gmail.com", "isadeeq17@gmail.com", "dangalan20@gmail.com",
     "muhammadsadanu@gmail.com", "rukitafida@gmail.com", "winter0019@protonmail.com",
-    "winter19@gmail.com", "adedoyinfehintola@gmail.com", "aderemijudy@gmail.com",  
-    "meetmohdibrahim@gmail.com", "ishayasamuel23@gmail.com", "msani516@gmail.com",  
-    "olufunkehenryobadofin@gmail.com", "saintmajid@gmail.com", "yhuleira@gmail.com",  
+    "winter19@gmail.com", "adedoyinfehintola@gmail.com", "aderemijudy@gmail.com",
+    "meetmohdibrahim@gmail.com", "ishayasamuel23@gmail.com", "msani516@gmail.com",
+    "olufunkehenryobadofin@gmail.com", "saintmajid@gmail.com", "yhuleira@gmail.com",
     "ahmedhauwadukku@gmail.com", "ladiamdiila42@gmail.com", "ummalikko@gmail.com",
     "dearmairamri@gmail.com",
 }
@@ -241,53 +244,22 @@ def call_gemini_for_quiz(context_text: str, subject: str, grade: str):
     - Each item must include: "question", "options", "answer".
     - The "answer" must exactly match one of the options.
     - Return output in strict JSON format ONLY, with no extra commentary.
-
-    Example JSON output for a professional exam:
-    {{
-      "questions": [
-        {{
-          "question": "An officer on SGL 08 has a disciplinary issue. According to the Public Service Rules, what committee is responsible for handling the promotion, appointment, and discipline of this officer?",
-          "options": [
-            "Junior Staff Committee (JSC) Local",
-            "Junior Staff Committee (JSC) Headquarters",
-            "Senior Staff Committee (SSC)",
-            "A special committee with a chairman on SGL 15 and above"
-          ],
-          "answer": "Senior Staff Committee (SSC)"
-        }},
-        {{
-          "question": "A serving corps member is reported by an employer for an infraction. As a Local Government Inspector, what is the first step you would take to address the issue?",
-          "options": [
-            "Immediately withdraw the corps member from the PPA.",
-            "Issue a query to the corps member to get a documented response.",
-            "Visit the corps member's place of primary assignment and interview all parties.",
-            "Invite the corps member to the office to hear their side of the story."
-          ],
-          "answer": "Invite the corps member to the office to hear their side of the story."
-        }},
-        {{
-          "question": "According to the provided document, the amended Electoral Bill allows political parties to conduct a primary election to replace a candidate under what circumstance?",
-          "options": [
-            "If the candidate withdraws from the race.",
-            "If the candidate fails a security clearance.",
-            "If the candidate dies during an election.",
-            "If the candidate is indicted for a criminal offence."
-          ],
-          "answer": "If the candidate dies during an election."
-        }}
-      ]
-    }}
     """
+
     model = genai.GenerativeModel("gemini-1.5-flash")
-    response = model.generate_content(
-        prompt,
-        safety_settings={
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-        }
-    )
+    try:
+        response = model.generate_content(
+            prompt,
+            safety_settings={
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Gemini call failed: {e}", exc_info=True)
+        return {"questions": []}
 
     raw = (response.text or "").strip()
 
@@ -330,33 +302,55 @@ def call_gemini_for_quiz(context_text: str, subject: str, grade: str):
     logger.error(f"Quiz generation failed after all parsing attempts. Raw output:\n{raw}", exc_info=True)
     return {"questions": []}
 
-def fetch_gnews_text(query, max_results=5, language='en', country='NG'):
+def fetch_gnews_text(query, max_results=5, language='en', country='ng'):
+    """
+    Fetch news from GNews (gnews.io). Requires GNEWS_API_KEY set in environment.
+    Falls back to a simulated result if key not set or the request fails.
+    """
+    if not GNEWS_API_KEY:
+        logger.warning("GNEWS_API_KEY is not set; returning simulated news instead.")
+        # Simulated fallback (short)
+        simulated = [
+            {"title": "Nigeria's economy shows signs of growth", "description": "GDP rises according to recent report.", "publishedAt": "2025-09-12T10:00:00Z"},
+            {"title": "Security measures praised in Northern Nigeria", "description": "New initiatives to curb banditry.", "publishedAt": "2025-09-11T15:30:00Z"},
+        ]
+        ctx = ""
+        for a in simulated[:max_results]:
+            ctx += f"Title: {a['title']}\nDescription: {a['description']}\nPublished Date: {a['publishedAt']}\n\n"
+        return ctx
+
+    endpoint = "https://gnews.io/api/v4/search"
+    params = {
+        "q": query,
+        "token": GNEWS_API_KEY,
+        "lang": language,
+        "max": max_results,
+        "country": country
+    }
     try:
-        # GNews is not used directly, so this function simulates a response
-        logger.info(f"Simulating GNews API call for query: {query}")
-        
-        # Simulated data for a current affairs quiz
-        simulated_data = {
-            "articles": [
-                {"title": "Nigeria's economy shows signs of growth, says World Bank report.", "description": "The latest report highlights a 3.5% GDP increase in the last quarter.", "published date": "2025-09-12T10:00:00Z"},
-                {"title": "Recent security measures in Northern Nigeria praised by global analysts.", "description": "New initiatives are aimed at curbing banditry and improving civilian safety.", "published date": "2025-09-11T15:30:00Z"},
-                {"title": "National Assembly passes new bill on infrastructure development.", "description": "The new legislation focuses on public-private partnerships to build key roads and bridges.", "published date": "2025-09-10T08:45:00Z"},
-                {"title": "Super Eagles' new coach looks ahead to the next AFCON qualifiers.", "description": "The team is preparing for crucial matches to secure a spot in the next African Cup of Nations.", "published date": "2025-09-09T18:00:00Z"},
-                {"title": "Global oil prices continue to fluctuate, impacting Nigeria's budget.", "description": "Experts are debating the long-term effects of recent changes in the international oil market on the national economy.", "published date": "2025-09-08T09:15:00Z"}
-            ]
-        }
-        
-        context_text = ""
-        for article in simulated_data["articles"]:
-            context_text += f"Title: {article['title']}\n"
-            context_text += f"Description: {article['description']}\n"
-            context_text += f"Published Date: {article['published date']}\n\n"
-        
-        return context_text
-        
+        resp = requests.get(endpoint, params=params, timeout=8)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # GNews returns 'articles' list; normalize into context text
+        articles = data.get("articles") or []
+        if not articles:
+            logger.info("GNews returned no articles; returning simulated text.")
+            return fetch_gnews_text(query, max_results, language, country)  # fallback to simulated
+
+        ctx = ""
+        for art in articles[:max_results]:
+            title = art.get("title", "")
+            desc = art.get("description", "") or art.get("content", "")
+            pub = art.get("publishedAt", art.get("published date", ""))
+            ctx += f"Title: {title}\n"
+            ctx += f"Description: {desc}\n"
+            ctx += f"Published Date: {pub}\n\n"
+        return ctx
     except Exception as e:
-        logger.error(f"GNews fetch failed: {e}")
-        return f"An error occurred while fetching news: {e}"
+        logger.error(f"GNews fetch failed: {e}", exc_info=True)
+        # fallback to simulated
+        return fetch_gnews_text(query, max_results, language, country)
 
 # --- Routes ---
 @app.route("/")
@@ -399,8 +393,7 @@ def logout():
         try:
             user_doc_ref.delete()
         except Exception:
-            # ignore failures deleting presence
-            logger.exception("Failed to delete presence on logout")
+            logger.exception("Failed to remove presence doc during logout.")
     
     session.clear()
     return jsonify({"ok": True})
@@ -425,10 +418,45 @@ def quiz():
     """Renders the quiz page for the user."""
     return render_template("quiz.html")
 
+# --- This is the endpoint your front-end was hitting (POST /generate_quiz) ---
+# It returns a quiz based on current affairs using GNews when subject is "current affairs".
+@app.route("/generate_quiz", methods=["POST"])
+@login_required
+def generate_quiz_page():
+    try:
+        # Support both JSON and form submissions
+        if request.is_json:
+            data = request.get_json(silent=True) or {}
+            subject = data.get("subject", "Current Affairs")
+            grade = data.get("grade", "GL10")
+        else:
+            subject = request.form.get("subject", "Current Affairs")
+            grade = request.form.get("grade", "GL10")
+
+        # If subject implies news/current affairs -> fetch from GNews
+        if subject and subject.lower() in ["current affairs", "global politics", "news", "current events"]:
+            context_text = fetch_gnews_text("Nigeria current affairs", max_results=6)
+        else:
+            # fallback simple context
+            context_text = f"Trial quiz for {subject} at grade {grade}"
+
+        cache_key = generate_cache_key(f"{context_text}_{grade}_{subject}", 10, "pagequiz")
+        cached = cache_get(cache_key)
+        if cached:
+            return jsonify(cached)
+
+        quiz = call_gemini_for_quiz(context_text, subject, grade)
+        cache_set(cache_key, quiz, ttl_minutes=10)
+        return jsonify(quiz)
+
+    except Exception as e:
+        logger.error(f"generate_quiz_page failed: {e}", exc_info=True)
+        return jsonify({"error": "Failed to generate quiz"}), 500
+
 # --- Free Trial Quiz API ---
 @app.route("/api/quiz/free_trial", methods=["POST"])
 @login_required
-def generate_free_quiz():
+def api_generate_free_quiz():
     try:
         data = request.get_json(force=True, silent=True) or {}
         grade = data.get("gl") or data.get("grade") or "GL10"
@@ -463,34 +491,13 @@ def generate_free_quiz():
         return jsonify(quiz)
 
     except Exception as e:
-        logger.error(f"Free quiz error: {e}")
+        logger.error(f"Free quiz error: {e}", exc_info=True)
         return jsonify({"error": "Quiz generation failed"}), 500
-
-@app.route("/generate_quiz", methods=["POST"])
-@login_required
-@limiter.limit("10 per minute")
-def generate_quiz():
-    try:
-        data = request.get_json(force=True)
-        topic = data.get("topic", "General Knowledge")
-        num_questions = int(data.get("num_questions", 5))
-
-        # Call Gemini to generate quiz questions
-        prompt = f"Generate {num_questions} multiple-choice quiz questions on {topic}. Each question should have 4 options and indicate the correct answer."
-
-        response = genai.GenerativeModel("gemini-1.5-flash").generate_content(prompt)
-        quiz_text = response.text.strip() if hasattr(response, "text") else str(response)
-
-        return jsonify({"quiz": quiz_text})
-
-    except Exception as e:
-        logger.error(f"Quiz generation failed: {e}", exc_info=True)
-        return jsonify({"error": "Failed to generate quiz"}), 500
 
 # --- Document Upload Quiz API ---
 @app.route("/api/quiz/upload", methods=["POST"])
 @login_required
-def generate_quiz():
+def api_generate_quiz_upload():
     try:
         if "document" not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
@@ -585,14 +592,11 @@ def ping():
         logger.error(f"Failed to update user presence: {e}", exc_info=True)
         return jsonify({"status": "error"}), 500
 
+# --- Online Users API (single definition; fixed duplicate issue) ---
 @app.route("/api/online_users", methods=["GET"])
 @login_required
 @limiter.limit("60 per minute")
 def get_online_users():
-    """
-    Single definition of get_online_users (duplicate removed).
-    Returns recent users from Firestore presence collection.
-    """
     if not db:
         return jsonify({"error": "Database not configured"}), 500
     
@@ -632,7 +636,7 @@ def discussions():
             logger.error(f"Failed to create discussion: {e}", exc_info=True)
             return jsonify({"error": "Failed to create discussion"}), 500
 
-    else:  # GET request
+    else: # GET request
         try:
             topics_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics")
             topics_stream = topics_ref.order_by("created_at", direction=firestore.Query.DESCENDING).stream()
@@ -667,7 +671,7 @@ def discussion_messages(topic_id):
         except Exception as e:
             logger.error(f"Failed to post message: {e}", exc_info=True)
             return jsonify({"error": "Failed to post message"}), 500
-    else:  # GET request
+    else: # GET request
         try:
             messages_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics").document(topic_id).collection("messages")
             messages_stream = messages_ref.order_by("created_at").stream()
@@ -689,11 +693,8 @@ def discussion_summary(topic_id):
         cache_key = f"summary:{topic_id}"
         cached_summary = cache_get(cache_key)
         if cached_summary:
-            # We need to fetch topic doc to return title
             topic_doc = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics").document(topic_id).get()
-            topic_title = topic_doc.to_dict().get("question") if topic_doc.exists else ""
-            logger.info(f"Summary for topic {topic_id} served from cache.")
-            return jsonify({"topic_title": topic_title, "summary": cached_summary})
+            return jsonify({"topic_title": topic_doc.to_dict().get("question"), "summary": cached_summary})
 
         topic_doc = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics").document(topic_id).get()
         if not topic_doc.exists:
@@ -728,5 +729,5 @@ def discussion_summary(topic_id):
 
 # --- Run ---
 if __name__ == "__main__":
+    # Recommended: configure host/port via env vars in production
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
-
