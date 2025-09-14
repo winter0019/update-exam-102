@@ -1,4 +1,3 @@
-# app.py
 import os
 import re
 import json
@@ -17,722 +16,214 @@ from werkzeug.utils import secure_filename
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-from loguru import logger
-from dotenv import load_dotenv
-
+import logging
 import requests
-import tempfile
-import docx
-import PyPDF2
-import pytesseract
-from PIL import Image
 
-import firebase_admin
-from firebase_admin import credentials, firestore, auth
-from google.cloud.firestore_v1.base_query import FieldFilter
-
-# Attempt to use the gnews package if installed
-try:
-    from gnews import GNews  # type: ignore
-    GNEWS_AVAILABLE = True
-except Exception:
-    GNEWS_AVAILABLE = False
-
-# --- Load Environment ---
-load_dotenv()
-
-# --- Configure Google Gemini ---
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise RuntimeError("GEMINI_API_KEY is not set")
-genai.configure(api_key=GEMINI_API_KEY)
-
-# --- Flask App Setup ---
-app = Flask(__name__, template_folder="templates", static_folder="static")
+# =========================
+# APP CONFIG
+# =========================
+app = Flask(__name__)
 CORS(app)
-app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
 
-# --- Rate Limiter ---
-limiter = Limiter(get_remote_address, app=app, default_limits=["100 per day", "20 per hour"])
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "supersecret")
+limiter = Limiter(get_remote_address, app=app, default_limits=["200 per day", "50 per hour"])
 
-# --- Logger ---
-logger.remove()
-logger.add("logs/app_{time}.log", rotation="1 day", level="INFO")
-logger.add(lambda msg: print(msg, flush=True), level="INFO")  # also log to stdout
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d - %(message)s",
+)
+logger = logging.getLogger("app")
 
-# --- Firebase Setup (optional) ---
-db = None
-try:
-    firebase_json = os.getenv("FIREBASE_SERVICE_ACCOUNT")
-    if firebase_json:
-        cred_dict = json.loads(firebase_json) if isinstance(firebase_json, str) else firebase_json
-        cred = credentials.Certificate(cred_dict)
-        firebase_admin.initialize_app(cred)
-        db = firestore.client()
-        logger.info("Firebase initialized successfully")
-    else:
-        logger.info("FIREBASE_SERVICE_ACCOUNT not set; using in-memory room storage only.")
-except Exception as e:
-    logger.warning(f"Firebase not initialized: {e}")
 
-# --- Constants ---
-ALLOWED_EXTENSIONS = {"pdf", "docx", "png", "jpg", "jpeg"}
-ALLOWED_USERS = {
-    "deborahibiyinka@gmail.com", "feuri73@gmail.com", "zainabsalawu1989@gmail.com",
-    "alograce69@gmail.com", "abdullahimuhd790@gmail.com", "davidirene2@gmail.com",
-    "maryaugie2@gmail.com", "ashami73@gmail.com", "comzelhua@gmail.com",
-    "niyiolaniyi@gmail.com", "itszibnisah@gmail.com", "olayemisiola06@gmail.com",
-    "shemasalik@gmail.com", "akawupeter2@gmail.com", "pantuyd@gmail.com",
-    "omnibuszara@gmail.com", "mssphartyma@gmail.com", "assyy.au@gmail.com",
-    "shenyshehu@gmail.com", "isadeeq17@gmail.com", "dangalan20@gmail.com",
-    "muhammadsadanu@gmail.com", "rukitafida@gmail.com", "winter0019@protonmail.com",
-    "winter19@gmail.com", "adedoyinfehintola@gmail.com", "aderemijudy@gmail.com",
-    "meetmohdibrahim@gmail.com", "ishayasamuel23@gmail.com", "msani516@gmail.com",
-    "olufunkehenryobadofin@gmail.com", "saintmajid@gmail.com", "yhuleira@gmail.com",
-    "ahmedhauwadukku@gmail.com", "ladiamdiila42@gmail.com", "ummalikko@gmail.com",
-    "dearmairamri@gmail.com",
-}
-ALLOWED_USERS = {email.lower() for email in ALLOWED_USERS}
-ADMIN_USER = "dangalan20@gmail.com"
-APP_ID = "nysc-exam-prep-app"  # Placeholder App ID
-
-# In-memory storage for active sessions (for online user count)
-active_sessions = {}
-# Dictionary to store cached quiz data
-cache = {}
-
-# --- Helpers ---
-def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def extract_text_from_file(file_path):
-    text = ""
-    ext = os.path.splitext(file_path)[1].lower().lstrip(".")
-    try:
-        if ext == "pdf":
-            with open(file_path, "rb") as f:
-                reader = PyPDF2.PdfReader(f)
-                for page in reader.pages:
-                    text += page.extract_text() or ""
-        elif ext == "docx":
-            document = docx.Document(file_path)
-            text = "\n".join(p.text for p in document.paragraphs)
-        elif ext in {"png", "jpg", "jpeg"}:
-            img = Image.open(file_path)
-            text = pytesseract.image_to_string(img)
-        else:
-            raise ValueError(f"Unsupported file type: {ext}")
-    except Exception as e:
-        logger.error(f"File extraction failed: {e}")
-    return (text or "").strip()
-
-def preprocess_text_for_quiz(text):
-    lines = text.split('\n')
-    processed_lines = []
-    for line in lines:
-        stripped_line = line.strip()
-        # Remove known noise like "Chapter X" or section headers
-        if re.match(r'^(Chapter|Section)\s+\S+$', stripped_line, re.I):
-            continue
-        # Remove lines that look like question ID numbers followed by text
-        if re.match(r'^\s*\d{6}\s+\S+', stripped_line):
-            continue
-        processed_lines.append(line)
-    processed_text = '\n'.join(processed_lines)
-    processed_text = re.sub(r'Questions?\s*\d*\s*[\.\-]', '', processed_text, flags=re.I)
-    processed_text = re.sub(r'\s*Answer\s*[\.\-]', '', processed_text, flags=re.I)
-    return processed_text.strip()
-
-def generate_cache_key(base, ttl_minutes, prefix=""):
-    h = hashlib.md5(base.encode()).hexdigest()
-    return f"{prefix}_{h}_{ttl_minutes}"
-
-def cache_set(key, value, ttl_minutes=5):
-    cache[key] = {"value": value, "expires": datetime.now() + timedelta(minutes=ttl_minutes)}
-
-def cache_get(key):
-    if key in cache:
-        if datetime.now() < cache[key]["expires"]:
-            return cache[key]["value"]
-        del cache[key]
-    return None
-
+# =========================
+# HELPERS
+# =========================
 def login_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
-        if "user_email" not in session:
+        if "user" not in session:
             return redirect(url_for("login"))
         return f(*args, **kwargs)
     return wrapper
 
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if session.get('user_email') != ADMIN_USER:
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
 
-# --- Middleware ---
-@app.before_request
-def before_request_hook():
-    if 'user_email' in session:
-        active_sessions[session['user_email']] = datetime.utcnow()
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
 
-@app.after_request
-def after_request_hook(response):
-    logger.info(f"{request.remote_addr} {request.method} {request.path} {response.status_code}")
-    return response
 
-# --- Robust Gemini quiz parsing ---
-def _extract_first_json_block(text: str):
-    if not text:
-        return None
-    # First, look for code-fenced JSON
-    m = re.search(r"```json\s*(\{.*?\})\s*```", text, flags=re.S)
-    if m:
-        return m.group(1)
-    # Then, try to find a standalone JSON object
-    m = re.search(r"(\{(?:.|\n)*\})", text)
-    if m:
-        return m.group(1)
-    return None
+# =========================
+# GOOGLE GENAI CONFIG
+# =========================
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
-def quiz_to_uniform_schema(quiz_obj):
-    out = {"questions": []}
-    items = quiz_obj.get("questions") or quiz_obj.get("quiz") or []
+gemini_model = genai.GenerativeModel(
+    "gemini-1.5-flash",
+    generation_config={"temperature": 0.2, "top_p": 0.9, "top_k": 40, "max_output_tokens": 512},
+    safety_settings={
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    },
+)
 
-    for q in items:
-        question = str(q.get("question") or q.get("q") or "").strip()
-        options = q.get("options") or q.get("choices") or []
-        answer = str(q.get("answer") or q.get("correct") or q.get("correct_answer") or "").strip()
 
-        if isinstance(options, dict):
-            keys = ["A", "B", "C", "D"]
-            options = [options.get(k, "").strip() for k in keys if options.get(k)]
-
-        if isinstance(options, list):
-            options = [str(o).strip() for o in options if o]
-        else:
-            options = []
-
-        while len(options) < 4:
-            options.append("N/A")
-        options = options[:4]
-
-        # If answer is a letter (A/B/C/D) map to options if possible
-        if re.fullmatch(r'^[A-D]$', answer, flags=re.I):
-            idx = ord(answer.upper()) - ord('A')
-            if 0 <= idx < len(options):
-                answer = options[idx]
-
-        if answer not in options:
-            # If the answer is empty or doesn't match, leave blank to avoid wrong mapping
-            answer = ""
-
-        if question:
-            out["questions"].append({
-                "question": question,
-                "options": options,
-                "answer": answer
-            })
-    return out
-
-def call_gemini_for_quiz(context_text: str, subject: str, grade: str):
-    """
-    Ask Gemini to generate realistic Nigerian Civil Service/NYSC promotional exam-style MCQs.
-    This function uses a stricter JSON-only instruction and tries multiple fallbacks.
-    """
-    # Ensure context length is reasonable for prompt
-    ctx_sample = context_text[:3500] if context_text else ""
-
-    # A very strict prompt asking for JSON ONLY and nothing else.
-    # We close the triple-quoted string correctly.
-    prompt = f"""You are an exam-writer assistant. Using ONLY the provided SOURCE TEXT below,
-generate a set of high-quality multiple-choice questions for a Nigerian Civil Service / NYSC-style exam.
-RETURN ONLY valid JSON that parses into an object with a single key "questions" whose value is a list of items.
-Each item must be an object with keys: "question", "options", "answer".
-
-Constraints:
-1. Produce between 5 and 10 questions.
-2. Each question MUST have exactly 4 options. Options should be short (1-12 words).
-3. The "answer" value MUST exactly match one of the options.
-4. Do NOT include explanations, analysis, disclaimers, or any extra text before or after the JSON.
-5. If you cannot form 5 questions from the context, still return as many as are strictly supported (min 1), but the output must still be valid JSON.
-6. Use plain ASCII characters only in the JSON (avoid newlines inside option strings).
-7. Do NOT wrap the JSON in markdown fences. Return the raw JSON object.
-
-SOURCE:
-{ctx_sample}
-
-EXAMPLE OF VALID OUTPUT (exact structure):
-{{"questions":[{{"question":"Sample Q?","options":["A","B","C","D"],"answer":"B"}}]}}
-"""
-
-    # Create the model and generate content. Use low temperature for determinism.
-    model = genai.GenerativeModel("gemini-1.5-flash")
-    try:
-        response = model.generate_content(
-            prompt,
-            temperature=0.0,
-            max_output_tokens=1200,
-            safety_settings={
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            }
-        )
-    except Exception as e:
-        logger.error(f"Gemini API call failed: {e}", exc_info=True)
-        return {"questions": []}
-
-    raw = (response.text or "").strip()
-
-    # 1) Try strict JSON parse
-    try:
-        parsed = json.loads(raw)
-        return quiz_to_uniform_schema(parsed)
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse strict JSON. Attempting fallback methods. Error: {e}")
-
-    # 2) Try extracting a JSON block (fenced or first object)
-    jb = _extract_first_json_block(raw)
-    if jb:
-        try:
-            parsed = json.loads(jb)
-            logger.info("Successfully extracted and parsed a JSON block from Gemini output.")
-            return quiz_to_uniform_schema(parsed)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse extracted JSON block. Error: {e}")
-
-    # 3) As a final fallback, do defensive regex parsing to salvage question-like text
-    logger.warning("All JSON parsing failed. Falling back to regex salvage parsing.")
-    questions = []
-    # Split by double newlines which often separate items
-    blocks = re.split(r"\n\s*\n", raw)
-    for b in blocks:
-        lines = [ln.strip("- \t\r\n").strip() for ln in b.split("\n") if ln.strip()]
-        if not lines:
-            continue
-        # Find a question line (heuristic: contains a '?')
-        q_line = None
-        for ln in lines:
-            if '?' in ln and len(ln.split()) > 3:
-                q_line = ln
-                break
-        if not q_line:
-            q_line = lines[0]
-        # Now collect options: lines that start with A/B/C/D or look like options
-        opts = []
-        for ln in lines:
-            m = re.match(r'^[A-D][\)\.\-:\s]+\s*(.+)$', ln, flags=re.I)
-            if m:
-                opts.append(m.group(1).strip())
-        if len(opts) < 4:
-            # Try to find lines that look like short options
-            for ln in lines[1:]:
-                if 1 <= len(ln.split()) <= 12 and len(opts) < 4:
-                    if ln not in opts:
-                        opts.append(ln.strip())
-        while len(opts) < 4:
-            opts.append("N/A")
-        questions.append({"question": q_line, "options": opts[:4], "answer": ""})
-        if len(questions) >= 10:
-            break
-
-    if questions:
-        logger.info(f"Salvaged {len(questions)} questions via regex fallback.")
-        return {"questions": questions[:10]}
-
-    logger.error(f"Quiz generation failed after all parsing attempts. Raw output:\n{raw}", exc_info=True)
-    return {"questions": []}
-
-def fetch_gnews_text(query, max_results=5, language='en', country='NG'):
-    """
-    Fetch short summaries for the given query using the gnews library when available.
-    If gnews is not installed or fetch fails, return a simulated set of recent headlines.
-    """
-    try:
-        if not GNEWS_AVAILABLE:
-            logger.warning("GNEWS package not available; returning simulated news instead.")
-            raise ImportError("gnews package not installed")
-
-        # Use GNews to fetch top news for the specified country/language
-        gnews = GNews(language=language, country=country, max_results=max_results)
-        articles = gnews.get_news(query)
-        if not articles:
-            logger.warning("GNews returned no articles; using simulated fallback.")
-            raise RuntimeError("No articles returned")
-
-        context_text = ""
-        for art in articles[:max_results]:
-            title = art.get("title", "").strip()
-            desc = art.get("description", "").strip() or art.get("summary", "").strip()
-            published = art.get("published date", art.get("publishedAt", ""))
-            context_text += f"Title: {title}\nDescription: {desc}\nPublished Date: {published}\n\n"
-        return context_text
-
-    except Exception as e:
-        # Log the real exception and return the simulated dataset (keeps behavior stable)
-        logger.warning(f"GNews fetch failed: {e}. Returning simulated news.")
-        simulated_data = {
-            "articles": [
-                {"title": "Nigeria's economy shows signs of growth, says World Bank report.", "description": "The latest report highlights a 3.5% GDP increase in the last quarter.", "published date": "2025-09-12T10:00:00Z"},
-                {"title": "Recent security measures in Northern Nigeria praised by global analysts.", "description": "New initiatives are aimed at curbing banditry and improving civilian safety.", "published date": "2025-09-11T15:30:00Z"},
-                {"title": "National Assembly passes new bill on infrastructure development.", "description": "The new legislation focuses on public-private partnerships to build key roads and bridges.", "published date": "2025-09-10T08:45:00Z"},
-                {"title": "Super Eagles' new coach looks ahead to the next AFCON qualifiers.", "description": "The team is preparing for crucial matches to secure a spot in the next African Cup of Nations.", "published date": "2025-09-09T18:00:00Z"},
-                {"title": "Global oil prices continue to fluctuate, impacting Nigeria's budget.", "description": "Experts are debating the long-term effects of recent changes in the international oil market on the national economy.", "published date": "2025-09-08T09:15:00Z"}
-            ]
-        }
-        context_text = ""
-        for article in simulated_data["articles"]:
-            context_text += f"Title: {article['title']}\n"
-            context_text += f"Description: {article['description']}\n"
-            context_text += f"Published Date: {article['published date']}\n\n"
-        return context_text
-
-# --- Routes ---
+# =========================
+# ROUTES
+# =========================
 @app.route("/")
 def home():
+    if "user" in session:
+        return redirect(url_for("quiz"))
     return redirect(url_for("login"))
 
-@app.route("/health")
-def health():
-    return jsonify({"ok": True, "time": datetime.utcnow().isoformat() + "Z"})
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        if request.is_json:
-            data = request.get_json(silent=True) or {}
-            email = data.get("email", "").lower()
-            password = data.get("password", "")
-        else:
-            email = request.form.get("email", "").lower()
-            password = request.form.get("password", "")
+        try:
+            data = request.get_json(force=True)
+            username = data.get("username")
+            password = data.get("password")
 
-        if email not in ALLOWED_USERS:
-            return jsonify({"ok": False, "error": "Unauthorized email"}), 401
+            if not username or not password:
+                return jsonify({"status": "error", "message": "Missing credentials"}), 400
 
-        session["user_email"] = email
-        role = "admin" if email == ADMIN_USER else "user"
+            # For demo: single hardcoded user
+            if username == "admin" and hash_password(password) == hash_password("password"):
+                session["user"] = username
+                return jsonify({"status": "success"}), 200
 
-        if role == "admin":
-            return jsonify({"ok": True, "redirect": url_for("admin_dashboard")})
-        else:
-            return jsonify({"ok": True, "redirect": url_for("quiz")})
+            return jsonify({"status": "error", "message": "Invalid login"}), 401
+        except Exception as e:
+            logger.error(f"Login error: {e}")
+            return jsonify({"status": "error", "message": "Login failed"}), 500
 
     return render_template("login.html")
 
-@app.route("/logout", methods=["POST"])
-def logout():
-    user_email = session.get("user_email")
-    if user_email and db:
-        user_doc_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("presence_users").document(user_email.replace('.', '_'))
-        try:
-            user_doc_ref.delete()
-        except Exception as e:
-            logger.warning(f"Failed to delete presence doc for {user_email}: {e}")
-    session.clear()
-    return jsonify({"ok": True})
-
-@app.route("/dashboard")
-@login_required
-def dashboard():
-    user = session["user_email"]
-    if user == ADMIN_USER:
-        return redirect(url_for("admin_dashboard"))
-
-    return render_template("dashboard.html", email=user)
-
-@app.route("/admin_dashboard")
-@admin_required
-def admin_dashboard():
-    return render_template("admin_dashboard.html")
 
 @app.route("/quiz")
 @login_required
 def quiz():
-    """Renders the quiz page for the user."""
     return render_template("quiz.html")
 
-# --- Free Trial Quiz API ---
-@app.route("/api/quiz/free_trial", methods=["POST"])
-@login_required
-def generate_free_quiz():
-    try:
-        data = request.get_json(force=True, silent=True) or {}
-        grade = data.get("gl") or data.get("grade") or "GL10"
-        subject = data.get("subject") or "General Knowledge"
 
-        context_text = ""
-        if subject.lower() in ["global politics", "current affairs"]:
-            context_text = fetch_gnews_text("current affairs Nigeria politics")
-        elif subject.lower() == "international bodies and acronyms":
-            context_text = """
-What does FIFA stand for? Fédération Internationale de Football Association.
-What does FAO stand for? Food and Agriculture Organization.
-What does ECOWAS stand for? Economic Community of West African States.
-What does NAFDAC stand for? National Agency for Food and Drug Administration and Control.
-What does NSCDC stand for? Nigeria Security and Civil Defence Corps.
-What does WHO stand for? World Health Organization.
-What does UNICEF stand for? United Nations Children's Fund.
-What does AU stand for? African Union.
-What does NATO stand for? North Atlantic Treaty Organization.
-What does OPEC stand for? Organization of the Petroleum Exporting Countries.
-"""
-        else:
-            context_text = f"Trial quiz for {subject} at grade {grade}"
-
-        cache_key = generate_cache_key(f"{context_text}_{grade}_{subject}", 10, "freequiz")
-        cached = cache_get(cache_key)
-        if cached:
-            return jsonify(cached)
-
-        quiz = call_gemini_for_quiz(context_text, subject, grade)
-        cache_set(cache_key, quiz, ttl_minutes=10)
-        return jsonify(quiz)
-
-    except Exception as e:
-        logger.error(f"Free quiz error: {e}", exc_info=True)
-        return jsonify({"error": "Quiz generation failed"}), 500
-
-# --- Document Upload Quiz API ---
-@app.route("/api/quiz/upload", methods=["POST"])
+# =========================
+# QUIZ GENERATION ROUTE
+# =========================
+@app.route("/generate_quiz", methods=["POST"])
 @login_required
 def generate_quiz():
     try:
-        if "document" not in request.files:
-            return jsonify({"error": "No file uploaded"}), 400
+        data = request.get_json(force=True)
+        topic = data.get("topic", "current affairs")
 
-        file = request.files["document"]
-        if file.filename == "":
-            return jsonify({"error": "No selected file"}), 400
+        # Fetch context (news text from GNews or fallback)
+        context = fetch_gnews_text(topic)
 
-        if not allowed_file(file.filename):
-            return jsonify({"error": "Invalid file type"}), 400
+        # Generate quiz via Gemini
+        questions = call_gemini_for_quiz(context)
 
-        grade = request.form.get("grade", "GL10")
-        subject = request.form.get("subject", "General Knowledge")
-        filename = secure_filename(file.filename)
+        logger.info(f"Generated {len(questions)} questions for topic '{topic}'")
 
-        suffix = os.path.splitext(filename)[1] or ".pdf"
-        tmp_path = None
-
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                file.save(tmp.name)
-                tmp_path = tmp.name
-
-            raw_text = extract_text_from_file(tmp_path)
-            context_text = preprocess_text_for_quiz(raw_text)
-
-            if not context_text:
-                return jsonify({"error": "Could not extract text from uploaded file"}), 400
-
-            cache_key = generate_cache_key(f"{context_text}_{grade}_{subject}", 60, "genquiz")
-            cached = cache_get(cache_key)
-            if cached:
-                return jsonify(cached)
-
-            quiz = call_gemini_for_quiz(context_text, subject, grade)
-
-            if not quiz or not quiz.get("questions"):
-                return jsonify({"error": "No questions generated from the document"}), 500
-
-            cache_set(cache_key, quiz, ttl_minutes=60)
-            return jsonify(quiz)
-
-        except Exception as e:
-            logger.error("Quiz generation failed: %s", str(e), exc_info=True)
-            return jsonify({"error": "Quiz generation failed due to a server error."}), 500
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except Exception as cleanup_err:
-                    logger.warning(f"Could not delete temp file: {cleanup_err}")
+        return jsonify({"status": "success", "questions": questions}), 200
 
     except Exception as e:
-        logger.error("Quiz generation failed: %s", str(e), exc_info=True)
-        return jsonify({"error": "Quiz generation failed"}), 500
+        logger.error(f"Error in /generate_quiz: {e}\n{traceback.format_exc()}")
+        return jsonify({"status": "error", "message": str(e)}), 400
 
-@app.route("/api/delete_topic/<topic_id>", methods=["DELETE"])
-@admin_required
-def delete_topic(topic_id):
-    if not db:
-        return jsonify({"error": "Database not configured"}), 500
+
+# =========================
+# NEWS FETCHING (GNews)
+# =========================
+def fetch_gnews_text(query: str) -> str:
+    api_key = os.environ.get("GNEWS_API_KEY")
+    if not api_key:
+        logger.warning("GNEWS_API_KEY is not set; returning simulated news instead.")
+        return f"Simulated news content for {query}. This is fallback text."
 
     try:
-        # Delete all messages within the topic first
-        messages_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics").document(topic_id).collection("messages")
-        for message in messages_ref.stream():
-            message.reference.delete()
+        url = f"https://gnews.io/api/v4/search?q={query}&lang=en&max=5&token={api_key}"
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
 
-        # Then delete the topic itself
-        db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics").document(topic_id).delete()
-        return jsonify({"success": True, "message": "Topic deleted successfully."})
+        if "articles" not in data:
+            return f"No relevant news found for {query}."
+
+        articles = [a.get("title", "") + " " + a.get("description", "") for a in data["articles"]]
+        return " ".join(articles[:5])
+
     except Exception as e:
-        logger.error(f"Failed to delete discussion topic: {e}", exc_info=True)
-        return jsonify({"error": "Failed to delete discussion topic"}), 500
+        logger.error(f"GNews fetch failed: {e}")
+        return f"News fetch error for {query}"
 
-@app.route("/api/ping", methods=["POST"])
-@login_required
-@limiter.limit("60 per minute")
-def ping():
-    try:
-        user_email = session.get("user_email")
-        if user_email and db:
-            user_doc_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("presence_users").document(user_email.replace('.', '_'))
-            user_doc_ref.set({
-                "user_email": user_email,
-                "last_active": firestore.SERVER_TIMESTAMP,
-                "role": "admin" if user_email == ADMIN_USER else "user",
-            }, merge=True)
-            logger.debug(f"Ping received from {user_email}, presence updated.")
-        return jsonify({"status": "ok"})
-    except Exception as e:
-        logger.error(f"Failed to update user presence: {e}", exc_info=True)
-        return jsonify({"status": "error"}), 500
 
-# --- Online Users API (single definition, no duplicates) ---
-@app.route("/api/online_users", methods=["GET"])
-@login_required
-@limiter.limit("60 per minute")
-def get_online_users():
-    if not db:
-        return jsonify({"error": "Database not configured"}), 500
+# =========================
+# GEMINI QUIZ GENERATION
+# =========================
+def call_gemini_for_quiz(context: str):
+    """
+    Generate quiz questions from text context using Gemini with stricter JSON enforcement.
+    """
+    prompt = f"""
+You are a quiz generator. Based ONLY on the following context, generate 3 multiple-choice questions.
 
-    try:
-        presence_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("presence_users")
-        cutoff = datetime.utcnow() - timedelta(seconds=60)
-        # Use FieldFilter for compatibility
-        users_stream = presence_ref.where(filter=FieldFilter("last_active", ">=", cutoff)).stream()
-        online_users = [{"id": doc.id, **doc.to_dict()} for doc in users_stream]
-        return jsonify({"count": len(online_users), "users": online_users})
-    except Exception as e:
-        logger.error(f"Failed to fetch online users: {e}", exc_info=True)
-        return jsonify({"error": "Failed to fetch online users"}), 500
+Context:
+\"\"\"{context}\"\"\"
 
-@app.route("/api/discussions", methods=["GET", "POST"])
-@login_required
-@limiter.limit("60 per minute")
-def discussions():
-    if not db:
-        return jsonify({"error": "Database not configured"}), 500
+Rules:
+- Strict JSON output ONLY.
+- Each question object must include:
+  "question": string,
+  "options": [string, string, string, string],
+  "answer": string (must match one of the options).
 
-    if request.method == "POST":
-        data = request.get_json()
-        question = data.get("question")
-        if not question:
-            return jsonify({"error": "Question is required"}), 400
-
-        try:
-            topics_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics")
-            new_topic_doc = topics_ref.add({
-                "question": question,
-                "author": session["user_email"],
-                "created_at": firestore.SERVER_TIMESTAMP
-            })
-            topic_id = new_topic_doc[1].id
-            return jsonify({"id": topic_id, "question": question})
-        except Exception as e:
-            logger.error(f"Failed to create discussion: {e}", exc_info=True)
-            return jsonify({"error": "Failed to create discussion"}), 500
-
-    else:  # GET request
-        try:
-            topics_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics")
-            topics_stream = topics_ref.order_by("created_at", direction=firestore.Query.DESCENDING).stream()
-            topics = [{"id": doc.id, **doc.to_dict()} for doc in topics_stream]
-            return jsonify(topics)
-        except Exception as e:
-            logger.error(f"Failed to fetch discussions: {e}", exc_info=True)
-            return jsonify({"error": "Failed to fetch discussions"}), 500
-
-@app.route("/api/discussions/<topic_id>/messages", methods=["GET", "POST"])
-@login_required
-@limiter.limit("60 per minute")
-def discussion_messages(topic_id):
-    if not db:
-        return jsonify({"error": "Database not configured"}), 500
-
-    if request.method == "POST":
-        data = request.get_json()
-        message_text = data.get("message")
-        if not message_text:
-            return jsonify({"error": "Message text is required"}), 400
-
-        try:
-            messages_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics").document(topic_id).collection("messages")
-            new_message_ref = messages_ref.add({
-                "text": message_text,
-                "author": session["user_email"],
-                "created_at": firestore.SERVER_TIMESTAMP,
-                "is_admin": session.get("user_email") == ADMIN_USER
-            })
-            return jsonify({"id": new_message_ref[1].id, "message": message_text})
-        except Exception as e:
-            logger.error(f"Failed to post message: {e}", exc_info=True)
-            return jsonify({"error": "Failed to post message"}), 500
-    else:  # GET request
-        try:
-            messages_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics").document(topic_id).collection("messages")
-            messages_stream = messages_ref.order_by("created_at").stream()
-            message_list = [{"id": msg.id, **msg.to_dict()} for msg in messages_stream]
-            return jsonify(message_list)
-        except Exception as e:
-            logger.error(f"Failed to get messages: {e}", exc_info=True)
-            return jsonify({"error": "Failed to get messages"}), 500
-
-@app.route("/api/discussions/<topic_id>/summary", methods=["POST"])
-@login_required
-@limiter.limit("10 per day")
-def discussion_summary(topic_id):
-    if not db:
-        return jsonify({"error": "Database not configured"}), 500
-
-    try:
-        # Check for summary in cache
-        cache_key = f"summary:{topic_id}"
-        cached_summary = cache_get(cache_key)
-        # We need topic_doc if cached summary is not present later; ensure safe access
-        topic_ref = db.collection("artifacts").document(APP_ID).collection("public").document("data").collection("discussion_topics").document(topic_id)
-        topic_doc = topic_ref.get()
-        if cached_summary:
-            logger.info(f"Summary for topic {topic_id} served from cache.")
-            return jsonify({"topic_title": topic_doc.to_dict().get("question") if topic_doc.exists else "", "summary": cached_summary})
-
-        if not topic_doc.exists:
-            return jsonify({"error": "Topic not found"}), 404
-
-        messages_ref = topic_ref.collection("messages")
-        messages_stream = messages_ref.order_by("created_at").stream()
-        message_list = [f"{msg.to_dict()['author']}: {msg.to_dict()['text']}" for msg in messages_stream]
-
-        joined_messages = "\n".join(message_list)
-
-        prompt = f"""
-Summarize the following discussion among NYSC staff and corps members.
-Provide a clear, professional, and accurate summary with an authentic answer if users raised questions.
-
-Discussion:
-{joined_messages}
+Output format:
+[
+  {{
+    "question": "...",
+    "options": ["...", "...", "...", "..."],
+    "answer": "..."
+  }}
+]
 """
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt, temperature=0.0, max_output_tokens=800)
-        summary = (response.text or "").strip()
 
-        # Save summary to cache
-        cache_set(cache_key, summary, ttl_minutes=60)  # Cache for 60 minutes
-        logger.info(f"Summary for topic {topic_id} generated and cached.")
+    try:
+        response = gemini_model.generate_content(prompt)
+        text = response.text.strip()
 
-        return jsonify({"topic_title": topic_doc.to_dict().get("question"), "summary": summary})
+        # Try parsing directly
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
+
+        # Extract JSON block
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+
+        logger.warning("Falling back: failed to parse JSON properly.")
+        return [{"question": "Parsing failed", "options": ["A", "B", "C", "D"], "answer": "A"}]
+
     except Exception as e:
-        logger.error(f"Gemini summary failed: {e}", exc_info=True)
-        return jsonify({"error": "Failed to generate summary"}), 500
+        logger.error(f"Gemini quiz generation failed: {e}")
+        return [{"question": "Error generating quiz", "options": ["A", "B", "C", "D"], "answer": "A"}]
 
-# --- Run ---
+
+# =========================
+# AFTER REQUEST HOOK
+# =========================
+@app.after_request
+def after_request_hook(response):
+    logger.info("%s - %s %s %s", request.remote_addr, request.method, request.path, response.status_code)
+    return response
+
+
+# =========================
+# MAIN ENTRY
+# =========================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
