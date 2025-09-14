@@ -466,6 +466,27 @@ def generate_free_quiz():
         logger.error(f"Free quiz error: {e}")
         return jsonify({"error": "Quiz generation failed"}), 500
 
+@app.route("/generate_quiz", methods=["POST"])
+@login_required
+@limiter.limit("10 per minute")
+def generate_quiz():
+    try:
+        data = request.get_json(force=True)
+        topic = data.get("topic", "General Knowledge")
+        num_questions = int(data.get("num_questions", 5))
+
+        # Call Gemini to generate quiz questions
+        prompt = f"Generate {num_questions} multiple-choice quiz questions on {topic}. Each question should have 4 options and indicate the correct answer."
+
+        response = genai.GenerativeModel("gemini-1.5-flash").generate_content(prompt)
+        quiz_text = response.text.strip() if hasattr(response, "text") else str(response)
+
+        return jsonify({"quiz": quiz_text})
+
+    except Exception as e:
+        logger.error(f"Quiz generation failed: {e}", exc_info=True)
+        return jsonify({"error": "Failed to generate quiz"}), 500
+
 # --- Document Upload Quiz API ---
 @app.route("/api/quiz/upload", methods=["POST"])
 @login_required
@@ -708,3 +729,4 @@ def discussion_summary(topic_id):
 # --- Run ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
+
