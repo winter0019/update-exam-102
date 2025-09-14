@@ -163,6 +163,17 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# --- Middleware ---
+@app.before_request
+def before_request_hook():
+    if 'user_email' in session:
+        active_sessions[session['user_email']] = datetime.utcnow()
+
+@app.after_request
+def after_request_hook(response):
+    logger.info(f"{request.remote_addr} {request.method} {request.path} {response.status_code}")
+    return response
+
 # --- Robust Gemini quiz parsing ---
 def _extract_first_json_block(text: str):
     if not text:
